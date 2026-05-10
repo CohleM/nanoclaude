@@ -22,7 +22,7 @@ class Message(BaseModel):
     content: list[Content]
 
 # TOOLS
-get_weather = {
+get_weather_tool = {
     "type": "function",
     "function": {
         "name": "get_weather",
@@ -34,6 +34,11 @@ get_weather = {
         }
     }
 }
+
+
+def get_weather_fn(location):
+    return str({"weather": "Sunny", "temp": "28C", "location": location})
+
 class NanoClaude:
 
     def __init__(self):
@@ -41,7 +46,7 @@ class NanoClaude:
         self.history = [{"role": "system", "content": "You're NanoClaude Code, a god tier coding agent"}]
         
         # ADD TOOLs
-        self.tools = [get_weather]
+        self.tools = [get_weather_tool]
     def step(self):
         params = {
             **Config().model_dump(),
@@ -73,11 +78,14 @@ class NanoClaude:
                 self.history.append(assistant_msg.model_dump())
                 for tool in assistant_msg.tool_calls:
                     if tool.function.name == 'get_weather':
+                        location = json.loads(tool.function.arguments)['location']
+                        output = get_weather_fn(location)
+                        
                         self.history.append({
                         "role": "tool",
-                        "content": '{"weather": "Sunny", "temp": "28C"}',
+                        "content": output,
                         "tool_call_id": tool.id
-                    })
+                        })
                         
 
             # natural stop
