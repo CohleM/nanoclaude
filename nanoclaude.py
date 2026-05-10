@@ -21,12 +21,27 @@ class Message(BaseModel):
     role: str
     content: list[Content]
 
+# TOOLS
+get_weather = {
+    "type": "function",
+    "function": {
+        "name": "get_weather",
+        "description": "Get the weather",
+        "parameters": {
+            "type": "object",
+            "properties": {"location": {"type": "string"}},
+            "required": ["location"]
+        }
+    }
+}
 class NanoClaude:
 
     def __init__(self):
         # ── agent state ─────────────────────────────────────────────────
         self.history = [{"role": "system", "content": "You're NanoClaude Code, a god tier coding agent"}]
-
+        
+        # ADD TOOLs
+        self.tools = [get_weather]
     def step(self):
         params = {
             **Config().model_dump(),
@@ -34,6 +49,7 @@ class NanoClaude:
             "api_key": os.environ['LLM_API_KEY']
         }
         params["messages"] = self.history
+        params["tools"] = self.tools # Add tools
         return completion(**params)
 
     def execute(self, user_message):
@@ -51,6 +67,18 @@ class NanoClaude:
                 print('='*50)
                 print('ASSISTANT\n', assistant_msg.content, )
                 print('='*50)
+
+            # ADD TOOLS
+            if hasattr(assistant_msg, "tool_calls") and assistant_msg.tool_calls:
+                self.history.append(assistant_msg.model_dump())
+                for tool in assistant_msg.tool_calls:
+                    if tool.function.name == 'get_weather':
+                        self.history.append({
+                        "role": "tool",
+                        "content": '{"weather": "Sunny", "temp": "28C"}',
+                        "tool_call_id": tool.id
+                    })
+                        
 
             # natural stop
             if response.choices[0].finish_reason == "stop":
