@@ -15,6 +15,16 @@ import time
 import libtmux
 
 
+import shutil
+import sys
+import tempfile
+import time
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Literal, Tuple
+
+
 class Config(BaseModel):
     model: str = "deepseek/deepseek-v4-pro"
 
@@ -91,6 +101,96 @@ def bash_tool() -> dict:
                     
                 },
                 'required': ['command'],
+            },
+        },
+    }
+
+
+
+_DETAILED_STR_REPLACE_EDITOR_DESCRIPTION = """Custom editing tool for viewing, creating and editing files in plain-text format
+* State is persistent across command calls and discussions with the user
+* If `path` is a text file, `view` displays the result of applying `cat -n`. If `path` is a directory, `view` lists non-hidden files and directories up to 2 levels deep
+* The following binary file extensions can be viewed in Markdown format: [".xlsx", ".pptx", ".wav", ".mp3", ".m4a", ".flac", ".pdf", ".docx"]. IT DOES NOT HANDLE IMAGES.
+* The `create` command cannot be used if the specified `path` already exists as a file
+* If a `command` generates a long output, it will be truncated and marked with `<response clipped>`
+* The `undo_edit` command will revert the last edit made to the file at `path`
+* This tool can be used for creating and editing files in plain-text format.
+
+
+Before using this tool:
+1. Use the view tool to understand the file's contents and context
+2. Verify the directory path is correct (only applicable when creating new files):
+   - Use the view tool to verify the parent directory exists and is the correct location
+
+When making edits:
+   - Ensure the edit results in idiomatic, correct code
+   - Do not leave the code in a broken state
+   - Always use absolute file paths (starting with /)
+
+CRITICAL REQUIREMENTS FOR USING THIS TOOL:
+
+1. EXACT MATCHING: The `old_str` parameter must match EXACTLY one or more consecutive lines from the file, including all whitespace and indentation. The tool will fail if `old_str` matches multiple locations or doesn't match exactly with the file content.
+
+2. UNIQUENESS: The `old_str` must uniquely identify a single instance in the file:
+   - Include sufficient context before and after the change point (3-5 lines recommended)
+   - If not unique, the replacement will not be performed
+
+3. REPLACEMENT: The `new_str` parameter should contain the edited lines that replace the `old_str`. Both strings must be different.
+
+Remember: when making multiple file edits in a row to the same file, you should prefer to send all edits in a single message with multiple calls to this tool, rather than multiple messages with a single call each.
+"""
+
+
+
+
+def file_editor_tool() -> dict:
+    
+    return {
+        'type': 'function',
+        'function': {
+            'name': 'file_editor',
+            'description': _DETAILED_STR_REPLACE_EDITOR_DESCRIPTION,
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'command': {
+                        'description': 'The commands to run. Allowed options are: `view`, `create`, `str_replace`, `insert`, `undo_edit`.',
+                        'enum': [
+                            'view',
+                            'create',
+                            'str_replace',
+                            'insert',
+                            'undo_edit',
+                        ],
+                        'type': 'string',
+                    },
+                    'path': {
+                        'description': 'Absolute path to file or directory, e.g. `/workspace/file.py` or `/workspace`.',
+                        'type': 'string',
+                    },
+                    'file_text': {
+                        'description': 'Required parameter of `create` command, with the content of the file to be created.',
+                        'type': 'string',
+                    },
+                    'old_str': {
+                        'description': 'Required parameter of `str_replace` command containing the string in `path` to replace.',
+                        'type': 'string',
+                    },
+                    'new_str': {
+                        'description': 'Optional parameter of `str_replace` command containing the new string (if not given, no string will be added). Required parameter of `insert` command containing the string to insert.',
+                        'type': 'string',
+                    },
+                    'insert_line': {
+                        'description': 'Required parameter of `insert` command. The `new_str` will be inserted AFTER the line `insert_line` of `path`.',
+                        'type': 'integer',
+                    },
+                    'view_range': {
+                        'description': 'Optional parameter of `view` command when `path` points to a file. If none is given, the full file is shown. If provided, the file will be shown in the indicated line number range, e.g. [11, 12] will show lines 11 and 12. Indexing at 1 to start. Setting `[start_line, -1]` shows all lines from `start_line` to the end of the file.',
+                        'items': {'type': 'integer'},
+                        'type': 'array',
+                    },
+                },
+                'required': ['command', 'path'],
             },
         },
     }
@@ -271,6 +371,202 @@ class BashSession:
             metadata=CmdOutputMetadata(),
         )
 
+
+# File Editor
+
+# ═══════════════════════════════════════════════════════════════════════════
+# runtime/exceptions.py
+# ═══════════════════════════════════════════════════════════════════════════
+
+class ToolError(Exception):
+    """Raised when a tool encounters an error."""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(message)
+
+    def __str__(self):
+        return self.message
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# runtime/edit.py
+# ═══════════════════════════════════════════════════════════════════════════
+
+Command = Literal[
+    'view',
+    'create',
+    'str_replace',
+    'insert',
+    'undo_edit',
+]
+
+SNIPPET_CONTEXT_WINDOW = 4
+
+
+@dataclass
+class FileEditObservation:
+    path: Path
+    success_message: str | None = None
+    file_content: str | None = None
+    new_file_content: str | None = None
+    output: str | None = None
+
+
+class Editor:
+    def __init__(self):
+        pass
+
+    def __call__(
+        self,
+        command: Command,
+        path: str,
+        file_text: str | None = None,
+        view_range: list[int] | None = None,
+        old_str: str | None = None,
+        new_str: str | None = None,
+        insert_line: int | None = None,
+        enable_linting: bool = False,
+        **kwargs,
+    ):
+        _path = Path(path)
+        if command == 'view':
+            if view_range:
+                start_line, end_line = view_range
+                out = self.read_file(_path, start_line, end_line)
+                success_msg = f'Successfully read the file from line {start_line} to {end_line} file content:\n{out}'
+            else:
+                out = self.read_file(_path)
+                success_msg = f'Successfully read the file content:\n{out}'
+            return FileEditObservation(
+                path=_path,
+                success_message=success_msg,
+            )
+        if command == 'create':
+            self.write_file(path=_path, file_text=file_text)
+            return FileEditObservation(
+                path=_path,
+                success_message=f'Successfully Create a file at {_path} with file content:\n{file_text}',
+            )
+        elif command == 'insert':
+            return self.insert(_path, insert_line, new_str)
+        elif command == 'str_replace':
+            return self.str_replace(_path, new_str=new_str, old_str=old_str, enable_linting=False)
+
+    def view(self, path, view_range) -> FileEditObservation:
+        start_line, end_line = view_range
+        out = self.read_file(path, start_line, end_line)
+        return FileEditObservation(path=path, output=out)
+
+    def read_file(self, path: Path, start_line: int | None = None, end_line: int | None = None):
+        try:
+            if start_line is not None and end_line is not None:
+                with open(path, 'r', encoding='utf-8') as f:
+                    text = []
+                    for i, line in enumerate(f, 1):
+                        if i >= start_line:
+                            text.append(line)
+                        if i > end_line:
+                            break
+                return ''.join(text)
+            else:
+                with open(path, 'r', encoding='utf-8') as f:
+                    return ''.join(f)
+        except Exception as e:
+            raise ToolError(f'Error {e} ')
+
+    def insert(self, path: Path, insert_line: int, new_str: str):
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode='w', encoding='utf-8', delete=False
+            ) as temp_file:
+                with open(path, 'r', encoding='utf-8') as f:
+                    for i, line in enumerate(f, 1):
+                        if i < insert_line:
+                            temp_file.write(line)
+                        if i > insert_line:
+                            break
+
+                new_str_ls = new_str.split('\n')
+                for line in new_str_ls:
+                    temp_file.write(line + '\n')
+
+                with open(path, 'r', encoding='utf-8') as f:
+                    for i, line in enumerate(f, 1):
+                        if i >= insert_line:
+                            temp_file.write(line)
+
+                shutil.move(temp_file.name, path)
+
+            return FileEditObservation(
+                success_message=f'Successfully Inserted this code {new_str}',
+                path=path,
+            )
+        except Exception as e:
+            raise ToolError(f'Error {e}')
+
+    def str_replace(
+        self,
+        path: Path,
+        old_str: str,
+        new_str: str | None,
+        enable_linting: bool,
+    ) -> FileEditObservation:
+        new_str = new_str or ''
+
+        file_content = self.read_file(path)
+
+        pattern = re.escape(old_str)
+        occurrences = [
+            (
+                file_content.count('\n', 0, match.start()) + 1,
+                match.group(),
+                match.start(),
+            )
+            for match in re.finditer(pattern, file_content)
+        ]
+
+        if not occurrences:
+            raise ToolError(
+                f'No replacement was performed, old_str `{old_str}` did not appear verbatim in {path}.'
+            )
+        if len(occurrences) > 1:
+            line_numbers = sorted(set(line for line, _, _ in occurrences))
+            raise ToolError(
+                f'No replacement was performed. Multiple occurrences of old_str `{old_str}` in lines {line_numbers}. Please ensure it is unique.'
+            )
+
+        replacement_line, matched_text, idx = occurrences[0]
+
+        new_file_content = (
+            file_content[:idx] + new_str + file_content[idx + len(matched_text):]
+        )
+
+        self.write_file(path, new_file_content)
+
+        start_line = max(0, replacement_line - SNIPPET_CONTEXT_WINDOW)
+        end_line = replacement_line + SNIPPET_CONTEXT_WINDOW + new_str.count('\n')
+
+        snippet = self.read_file(path, start_line=start_line + 1, end_line=end_line)
+
+        success_message = f'The file {path} has been edited. '
+        success_message += f'a snippet of {path}\nsnippet:\n{snippet}'
+
+        return FileEditObservation(
+            success_message=success_message,
+            path=path,
+            file_content=file_content,
+            new_file_content=new_file_content,
+        )
+
+    def write_file(self, path: Path, file_text: str) -> None:
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(file_text)
+        except Exception as e:
+            raise ToolError(f'Ran into {e} while trying to write to {path}') from None
+
+
 class NanoClaude:
 
     def __init__(self):
@@ -278,7 +574,7 @@ class NanoClaude:
         self.history = [{"role": "system", "content": "You're NanoClaude Code, a god tier coding agent"}]
         
         # ADD TOOLs
-        self.tools = [bash_tool()]
+        self.tools = [bash_tool(), file_editor_tool()]
 
         #initialize the bash tool
         self.bash_session = BashSession(
@@ -286,6 +582,8 @@ class NanoClaude:
             username="to",
         )
         self.bash_session.initialize()
+
+        self.editor = Editor()
 
 
     def step(self):
@@ -345,15 +643,33 @@ class NanoClaude:
     
     def perform_action(self, tool):
         tool_name = tool.function.name
-
+        print('='*50)
+        print('EXECUTING TOOL:', tool_name)
+        print('='*50)
         if tool_name == "execute_bash":
-            print('='*50)
-            print('EXECUTING BASH TOOL')
-            print('='*50)
+
             arguments = json.loads(tool.function.arguments)
             out = self.bash_session.execute(arguments.get("command", ""))
             result = out.to_agent_observation()
             return convert_obs_to_json(result=result, tool=tool)
+
+        elif tool_name == "file_editor":
+            arguments = json.loads(tool.function.arguments)
+            args = {
+                "command": arguments.get("command", ""),
+                "path": arguments.get("path", ""),
+                "file_text": arguments.get("file_text", ""),
+                "old_str": arguments.get("old_str", ""),
+                "new_str": arguments.get("new_str", ""),
+                "insert_line": arguments.get("insert_line", ""),
+                "view_range": arguments.get("view_range", ""),
+            }
+            try:
+                result = self.editor(**args)
+                result_text = result.success_message
+            except ToolError as e:
+                result_text = e.message
+            return convert_obs_to_json(result=result_text, tool=tool)
             
 
 
