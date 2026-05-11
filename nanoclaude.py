@@ -7,6 +7,7 @@ Decorators handle spinner and tool logging; they no-op gracefully when
 import json
 import os
 import traceback
+import textwrap
 from pydantic import BaseModel
 from litellm import completion
 
@@ -23,6 +24,144 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Tuple
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Terminal colors & styling (Arch Linux aesthetic)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class Colors:
+    """ANSI terminal colors — Arch Linux palette."""
+    RESET     = '\033[0m'
+    BOLD      = '\033[1m'
+    DIM       = '\033[2m'
+    ITALIC    = '\033[3m'
+    UNDERLINE = '\033[4m'
+
+    # Arch-inspired palette
+    CYAN      = '\033[36m'
+    BLUE      = '\033[34m'
+    BRIGHT_BLUE = '\033[94m'
+    WHITE     = '\033[37m'
+    BRIGHT_WHITE = '\033[97m'
+    GREEN     = '\033[32m'
+    YELLOW    = '\033[33m'
+    MAGENTA   = '\033[35m'
+    RED       = '\033[31m'
+
+
+def print_separator(char: str = '─', width: int = 70) -> None:
+    """Print a styled horizontal separator line."""
+    print(f"{Colors.DIM}{char * width}{Colors.RESET}")
+
+
+def print_header(title: str) -> None:
+    """Print a styled section header."""
+    print()
+    print(f"{Colors.BOLD}{Colors.CYAN}  ▸ {title}{Colors.RESET}")
+    print_separator('─')
+
+
+def print_tool_call(tool_name: str, arguments: dict) -> None:
+    """Pretty-print a tool invocation with its parameters."""
+    print()
+    print(f"{Colors.BOLD}{Colors.BRIGHT_BLUE}  ⚙  TOOL CALL{Colors.RESET}")
+    print(f"{Colors.DIM}  ├─ name:{Colors.RESET} {Colors.BOLD}{Colors.YELLOW}{tool_name}{Colors.RESET}")
+    for key, value in arguments.items():
+        val_str = str(value)
+        if len(val_str) > 80:
+            val_str = val_str[:77] + '...'
+        # Replace newlines in value for clean display
+        val_str = val_str.replace('\n', '\\n')
+        print(f"{Colors.DIM}  ├─ {key}:{Colors.RESET} {Colors.GREEN}{val_str}{Colors.RESET}")
+    print(f"{Colors.DIM}  └─ executing...{Colors.RESET}")
+
+
+def print_assistant_message(content: str) -> None:
+    """Pretty-print the assistant's response."""
+    print()
+    print(f"{Colors.BOLD}{Colors.MAGENTA}  🤖 ASSISTANT{Colors.RESET}")
+    print_separator('─')
+    # Indent the content
+    for line in content.split('\n'):
+        print(f"  {Colors.WHITE}{line}{Colors.RESET}")
+    print_separator('─')
+
+
+def print_tool_result(success: bool, summary: str = '') -> None:
+    """Pretty-print tool execution result."""
+    icon = f"{Colors.GREEN}✓{Colors.RESET}" if success else f"{Colors.RED}✗{Colors.RESET}"
+    print(f"  {icon} {Colors.DIM}Tool finished{Colors.RESET} {summary}")
+
+
+def print_finish() -> None:
+    """Print the session-finish banner."""
+    print()
+    print_separator('═', 70)
+    print(f"{Colors.BOLD}{Colors.GREEN}  ✓ Execution Finished{Colors.RESET}")
+    print_separator('═', 70)
+    print()
+
+
+def print_prompt() -> None:
+    """Print the REPL prompt line."""
+    print()
+    print(f"{Colors.BOLD}{Colors.BRIGHT_WHITE}  ❯ Enter your prompt{Colors.RESET} "
+          f"{Colors.DIM}(or 'quit' to exit){Colors.RESET}")
+    print(f"{Colors.DIM}  ─────────────────────────────────────{Colors.RESET}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Splash Screen — Arch Linux style
+# ═══════════════════════════════════════════════════════════════════════════
+
+NANO_CLAUDE_LOGO = r"""
+{cyan}                    __                     __
+  ____  ____ _____  / /_  ____  ____  _____/ /
+ / __ \/ __ `/ __ \/ __ \/ __ \/ __ \/ ___/ /
+/ / / / /_/ / /_/ / /_/ / /_/ / /_/ / /__/ /
+/_/ /_\__,_/\____/_.___/\____/\____/\___/_/
+{reset}
+{blue}          ███╗   ██╗ █████╗ ███╗   ██╗ ██████╗
+          ████╗  ██║██╔══██╗████╗  ██║██╔═══██╗
+          ██╔██╗ ██║███████║██╔██╗ ██║██║   ██║
+          ██║╚██╗██║██╔══██║██║╚██╗██║██║   ██║
+          ██║ ╚████║██║  ██║██║ ╚████║╚██████╔╝
+          ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝
+{reset}
+{dim}              Claude Code · from scratch
+             A god-tier coding agent{reset}
+"""
+
+
+def show_splash() -> None:
+    """Render the Arch Linux-style splash screen."""
+    # Clear screen first
+    os.system('clear' if os.name != 'nt' else 'cls')
+
+    logo = NANO_CLAUDE_LOGO.format(
+        cyan=Colors.CYAN,
+        blue=Colors.BLUE,
+        reset=Colors.RESET,
+        dim=Colors.DIM,
+    )
+    print(logo)
+    print()
+
+    # System info line (Arch-style)
+    import platform
+    py_ver = platform.python_version()
+    cwd = os.getcwd()
+    home = os.path.expanduser('~')
+    if cwd.startswith(home):
+        cwd = '~' + cwd[len(home):]
+
+    info = f"  {Colors.DIM}python {py_ver}  ·  {cwd}  ·  {time.strftime('%H:%M:%S')}{Colors.RESET}"
+    print(info)
+    print()
+    print_separator('═', 70)
+    print(f"{Colors.BOLD}{Colors.BRIGHT_WHITE}  NanoClaude Code — Let's build.{Colors.RESET}")
+    print_separator('═', 70)
+    print()
 
 
 class Config(BaseModel):
@@ -587,6 +726,9 @@ class NanoClaude:
 
 
     def step(self):
+        # Show subtle thinking indicator
+        print(f"{Colors.DIM}  ⋯ thinking{Colors.RESET}", end='\r', flush=True)
+
         params = {
             **Config().model_dump(),
             "thinking": {"type": "enabled"},
@@ -594,67 +736,49 @@ class NanoClaude:
         }
         params["messages"] = self.history
         params["tools"] = self.tools # Add tools
-        return completion(**params)
+        result = completion(**params)
+
+        # Clear the thinking line
+        print(' ' * 40, end='\r')
+        return result
 
     def execute(self, user_message):
         
         self.history.append(user_message.dict())
 
-        # print(self.history)
-
         while True:
             response = self.step()
-            # print(response)
             assistant_msg = response.choices[0].message
 
             if assistant_msg.content:
-                print('='*50)
-                print('ASSISTANT\n', assistant_msg.content )
-                print('='*50)
+                print_assistant_message(assistant_msg.content)
 
             # ADD TOOLS
             if hasattr(assistant_msg, "tool_calls") and assistant_msg.tool_calls:
                 self.history.append(assistant_msg.model_dump())
                 for tool in assistant_msg.tool_calls:
-
-
-                    # if tool.function.name == 'get_weather':
-                    #     location = json.loads(tool.function.arguments)['location']
-                    #     output = get_weather_fn(location)
-                        
-                    #     self.history.append({
-                    #     "role": "tool",
-                    #     "content": output,
-                    #     "tool_call_id": tool.id
-                    #     })
-
                     observation = self.perform_action(tool)
                     self.history.append(observation)
 
-
-                        
-
             # natural stop
             if response.choices[0].finish_reason == "stop":
-                print('='*50)
-                print("Execution Finished")
-                print('='*50)
+                print_finish()
                 break
     
     def perform_action(self, tool):
         tool_name = tool.function.name
-        print('='*50)
-        print('EXECUTING TOOL:', tool_name)
-        print('='*50)
-        if tool_name == "execute_bash":
+        arguments = json.loads(tool.function.arguments)
 
-            arguments = json.loads(tool.function.arguments)
+        # Pretty-print the tool call with all parameters
+        print_tool_call(tool_name, arguments)
+
+        if tool_name == "execute_bash":
             out = self.bash_session.execute(arguments.get("command", ""))
             result = out.to_agent_observation()
+            print_tool_result(success=True)
             return convert_obs_to_json(result=result, tool=tool)
 
         elif tool_name == "file_editor":
-            arguments = json.loads(tool.function.arguments)
             args = {
                 "command": arguments.get("command", ""),
                 "path": arguments.get("path", ""),
@@ -667,22 +791,25 @@ class NanoClaude:
             try:
                 result = self.editor(**args)
                 result_text = result.success_message
+                print_tool_result(success=True)
             except ToolError as e:
                 result_text = e.message
+                print_tool_result(success=False, summary=f"{Colors.RED}{e.message}{Colors.RESET}")
             return convert_obs_to_json(result=result_text, tool=tool)
             
 
 
     # ── interactive repl ────────────────────────────────────────────────
     def repl(self):
+        show_splash()
         try:
             while True:
-                print('='*50) 
-                print('Enter your prompt')
-                print('='*50) 
-                instruction = input().strip()
+                print_prompt()
+                instruction = input(f"{Colors.BRIGHT_WHITE}  {Colors.RESET}").strip()
 
                 if instruction.lower() in ("quit", "exit", "q"):
+                    print()
+                    print(f"{Colors.DIM}  Shutting down...{Colors.RESET}")
                     break
 
                 if not instruction:
@@ -694,12 +821,16 @@ class NanoClaude:
                 self.execute(user_message=user_message)
 
         except KeyboardInterrupt:
-            print("\n----- Agent stopped by user! -----")
+            print()
+            print(f"{Colors.YELLOW}  ⚠ Agent stopped by user!{Colors.RESET}")
         except Exception as e:
-            print(f"Unexpected error: {e}")
+            print(f"{Colors.RED}  ✗ Unexpected error: {e}{Colors.RESET}")
             traceback.print_exc()
         finally:
-            print("NanoClaude session ended")
+            print()
+            print_separator('═', 70)
+            print(f"{Colors.DIM}  NanoClaude session ended{Colors.RESET}")
+            print()
 
 
 nanoclaude = NanoClaude()
