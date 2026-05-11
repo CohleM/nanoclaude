@@ -29,6 +29,83 @@ from typing import Literal, Tuple
 # Terminal colors & styling (Arch Linux aesthetic)
 # ═══════════════════════════════════════════════════════════════════════════
 
+SYSTEM_PROMPT = {
+    'content': """You are OpenHands agent, a helpful AI assistant that can interact with a computer to solve tasks.
+
+<ROLE>
+Your primary role is to assist users by executing commands, modifying code, and solving technical problems effectively. You should be thorough, methodical, and prioritize quality over speed.
+* If the user asks a question, like "why is X happening", don't try to fix the problem. Just give an answer to the question.
+</ROLE>
+
+<EFFICIENCY>
+* Each action you take is somewhat expensive. Wherever possible, combine multiple actions into a single action, e.g. combine multiple bash commands into one, using sed and grep to edit/view multiple files at once.
+* When exploring the codebase, use efficient tools like find, grep, and git commands with appropriate filters to minimize unnecessary operations.
+</EFFICIENCY>
+
+<FILE_SYSTEM_GUIDELINES>
+* When a user provides a file path, do NOT assume it's relative to the current working directory. First explore the file system to locate the file before working on it.
+* If asked to edit a file, edit the file directly, rather than creating a new file with a different filename.
+* For global search-and-replace operations, consider using `sed` instead of opening file editors multiple times.
+</FILE_SYSTEM_GUIDELINES>
+
+<CODE_QUALITY>
+* Write clean, efficient code with minimal comments. Avoid redundancy in comments: Do not repeat information that can be easily inferred from the code itself.
+* When implementing solutions, focus on making the minimal changes needed to solve the problem.
+* Before implementing any changes, first thoroughly understand the codebase through exploration.
+* If you are adding a lot of code to a function or file, consider splitting the function or file into smaller pieces when appropriate.
+</CODE_QUALITY>
+
+<VERSION_CONTROL>
+* When configuring git credentials, use "openhands" as the user.name and "openhands@all-hands.dev" as the user.email by default, unless explicitly instructed otherwise.
+* Exercise caution with git operations. Do NOT make potentially dangerous changes (e.g., pushing to main, deleting repositories) unless explicitly asked to do so.
+* When committing changes, use `git status` to see all modified files, and stage all files necessary for the commit. Use `git commit -a` whenever possible.
+* Do NOT commit files that typically shouldn't go into version control (e.g., node_modules/, .env files, build directories, cache files, large binaries) unless explicitly instructed by the user.
+* If unsure about committing certain files, check for the presence of .gitignore files or ask the user for clarification.
+</VERSION_CONTROL>
+
+<PULL_REQUESTS>
+* When creating pull requests, create only ONE per session/issue unless explicitly instructed otherwise.
+* When working with an existing PR, update it with new commits rather than creating additional PRs for the same issue.
+* When updating a PR, preserve the original PR title and purpose, updating description only when necessary.
+</PULL_REQUESTS>
+
+<PROBLEM_SOLVING_WORKFLOW>
+1. EXPLORATION: Thoroughly explore relevant files and understand the context before proposing solutions
+2. ANALYSIS: Consider multiple approaches and select the most promising one
+3. TESTING:
+   * For bug fixes: Create tests to verify issues before implementing fixes
+   * For new features: Consider test-driven development when appropriate
+   * If the repository lacks testing infrastructure and implementing tests would require extensive setup, consult with the user before investing time in building testing infrastructure
+   * If the environment is not set up to run tests, consult with the user first before investing time to install all dependencies
+4. IMPLEMENTATION: Make focused, minimal changes to address the problem
+5. VERIFICATION: If the environment is set up to run tests, test your implementation thoroughly, including edge cases. If the environment is not set up to run tests, consult with the user first before investing time to run tests.
+</PROBLEM_SOLVING_WORKFLOW>
+
+<SECURITY>
+* Only use GITHUB_TOKEN and other credentials in ways the user has explicitly requested and would expect.
+* Use APIs to work with GitHub or other platforms, unless the user asks otherwise or your task requires browsing.
+</SECURITY>
+
+<ENVIRONMENT_SETUP>
+* When user asks you to run an application, don't stop if the application is not installed. Instead, please install the application and run the command again.
+* If you encounter missing dependencies:
+  1. First, look around in the repository for existing dependency files (requirements.txt, pyproject.toml, package.json, Gemfile, etc.)
+  2. If dependency files exist, use them to install all dependencies at once (e.g., `pip install -r requirements.txt`, `npm install`, etc.)
+  3. Only install individual packages directly if no dependency files are found or if only specific packages are needed
+* Similarly, if you encounter missing dependencies for essential tools requested by the user, install them when possible.
+</ENVIRONMENT_SETUP>
+
+<TROUBLESHOOTING>
+* If you've made repeated attempts to solve a problem but tests still fail or the user reports it's still broken:
+  1. Step back and reflect on 5-7 different possible sources of the problem
+  2. Assess the likelihood of each possible cause
+  3. Methodically address the most likely causes, starting with the highest probability
+  4. Document your reasoning process
+* When you run into any major issue while executing a plan from the user, please don't try to directly work around it. Instead, propose a new plan and confirm with the user before proceeding.
+</TROUBLESHOOTING>""",
+    'role': 'system',
+}
+
 class Colors:
     """ANSI terminal colors — Arch Linux palette."""
     RESET     = '\033[0m'
@@ -87,10 +164,26 @@ def print_assistant_message(content: str) -> None:
     print_separator('─')
 
 
-def print_tool_result(success: bool, summary: str = '') -> None:
-    """Pretty-print tool execution result."""
+def print_tool_result(success: bool, summary: str = '', observation: str = '') -> None:
+    """Pretty-print tool execution result, including the observation output."""
     icon = f"{Colors.GREEN}✓{Colors.RESET}" if success else f"{Colors.RED}✗{Colors.RESET}"
     print(f"  {icon} {Colors.DIM}Tool finished{Colors.RESET} {summary}")
+
+    # ── Print the observation (truncated first section) ─────────────────
+    if observation:
+        # Grab the first ~500 chars / 8 lines for a preview
+        lines = observation.split('\n')
+        preview_lines = lines[:8]
+        preview = '\n'.join(preview_lines)
+        if len(preview) > 500:
+            preview = preview[:500] + '...'
+        elif len(lines) > 8:
+            preview += '\n  ...'
+
+        print(f"{Colors.DIM}  ┌ observation ────────────────────{Colors.RESET}")
+        for line in preview.split('\n'):
+            print(f"  {Colors.DIM}│{Colors.RESET} {Colors.WHITE}{line}{Colors.RESET}")
+        print(f"{Colors.DIM}  └──────────────────────────────────{Colors.RESET}")
 
 
 def print_finish() -> None:
@@ -114,23 +207,29 @@ def print_prompt() -> None:
 # Splash Screen — Arch Linux style
 # ═══════════════════════════════════════════════════════════════════════════
 
-NANO_CLAUDE_LOGO = r"""
-{cyan}                    __                     __
-  ____  ____ _____  / /_  ____  ____  _____/ /
- / __ \/ __ `/ __ \/ __ \/ __ \/ __ \/ ___/ /
-/ / / / /_/ / /_/ / /_/ / /_/ / /_/ / /__/ /
-/_/ /_\__,_/\____/_.___/\____/\____/\___/_/
-{reset}
-{blue}          ███╗   ██╗ █████╗ ███╗   ██╗ ██████╗
-          ████╗  ██║██╔══██╗████╗  ██║██╔═══██╗
-          ██╔██╗ ██║███████║██╔██╗ ██║██║   ██║
-          ██║╚██╗██║██╔══██║██║╚██╗██║██║   ██║
-          ██║ ╚████║██║  ██║██║ ╚████║╚██████╔╝
-          ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝
-{reset}
-{dim}              Claude Code · from scratch
-             A god-tier coding agent{reset}
+NANO_CLAUDE_LOGO = """
+{cyan}  ███╗   ██╗ █████╗ ███╗   ██╗ ██████╗ {reset}
+{cyan}  ████╗  ██║██╔══██╗████╗  ██║██╔═══██╗{reset}
+{cyan}  ██╔██╗ ██║███████║██╔██╗ ██║██║   ██║{reset}
+{cyan}  ██║╚██╗██║██╔══██║██║╚██╗██║██║   ██║{reset}
+{cyan}  ██║ ╚████║██║  ██║██║ ╚████║╚██████╔╝{reset}
+{cyan}  ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝{reset}
+{blue}  ██████╗██╗      █████╗ ██╗   ██╗██████╗ ███████╗{reset}
+{blue}  ██╔════╝██║     ██╔══██╗██║   ██║██╔══██╗██╔════╝{reset}
+{blue}  ██║     ██║     ███████║██║   ██║██║  ██║█████╗  {reset}
+{blue}  ██║     ██║     ██╔══██║██║   ██║██║  ██║██╔══╝  {reset}
+{blue}  ╚██████╗███████╗██║  ██║╚██████╔╝██████╔╝███████╗{reset}
+{blue}   ╚═════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚══════╝{reset}
+
+{dim}         Claude Code · from scratch
+        A god-tier coding agent{reset}
 """
+
+
+def _visible_len(s: str) -> int:
+    """Return the visible length of a string, stripping ANSI escape codes."""
+    import re
+    return len(re.sub(r'\033\[[0-9;]*m', '', s))
 
 
 def show_splash() -> None:
@@ -138,16 +237,33 @@ def show_splash() -> None:
     # Clear screen first
     os.system('clear' if os.name != 'nt' else 'cls')
 
+    width = 74
+
+    # Top decorative border (cyan gradient-style)
+    print(f"{Colors.CYAN}{Colors.BOLD}╔{'═' * (width - 2)}╗{Colors.RESET}")
+
+    # Logo centered inside the box
     logo = NANO_CLAUDE_LOGO.format(
-        cyan=Colors.CYAN,
-        blue=Colors.BLUE,
+        cyan=Colors.CYAN + Colors.BOLD,
+        blue=Colors.BLUE + Colors.BOLD,
         reset=Colors.RESET,
         dim=Colors.DIM,
     )
-    print(logo)
-    print()
+    for line in logo.strip().split('\n'):
+        stripped = line.strip()
+        if not stripped:
+            print(f"{Colors.CYAN}║{Colors.RESET}{' ' * (width - 2)}{Colors.CYAN}║{Colors.RESET}")
+            continue
+        vis_len = _visible_len(stripped)
+        pad_total = width - 2 - vis_len
+        left_pad = max(0, pad_total // 2)
+        right_pad = max(0, pad_total - left_pad)
+        print(f"{Colors.CYAN}║{Colors.RESET}{' ' * left_pad}{stripped}{' ' * right_pad}{Colors.CYAN}║{Colors.RESET}")
 
-    # System info line (Arch-style)
+    # Separator inside box
+    print(f"{Colors.CYAN}║{Colors.RESET}{' ' * (width - 2)}{Colors.CYAN}║{Colors.RESET}")
+
+    # System info line
     import platform
     py_ver = platform.python_version()
     cwd = os.getcwd()
@@ -155,12 +271,21 @@ def show_splash() -> None:
     if cwd.startswith(home):
         cwd = '~' + cwd[len(home):]
 
-    info = f"  {Colors.DIM}python {py_ver}  ·  {cwd}  ·  {time.strftime('%H:%M:%S')}{Colors.RESET}"
-    print(info)
-    print()
-    print_separator('═', 70)
-    print(f"{Colors.BOLD}{Colors.BRIGHT_WHITE}  NanoClaude Code — Let's build.{Colors.RESET}")
-    print_separator('═', 70)
+    info_raw = f"  🐍 python {py_ver}  ·  📁 {cwd}  ·  🕐 {time.strftime('%H:%M:%S')}"
+    info = f"{Colors.DIM}{info_raw}{Colors.RESET}"
+    vis_info = len(info_raw)
+    pad_info = width - 2 - vis_info
+    print(f"{Colors.CYAN}║{Colors.RESET}{info}{' ' * max(0, pad_info)}{Colors.CYAN}║{Colors.RESET}")
+
+    # Bottom with tagline
+    print(f"{Colors.CYAN}║{Colors.RESET}{' ' * (width - 2)}{Colors.CYAN}║{Colors.RESET}")
+    tagline_raw = "  ⚡ NanoClaude Code — Let's build something great."
+    tagline = f"{Colors.BOLD}{Colors.BRIGHT_WHITE}{tagline_raw}{Colors.RESET}"
+    pad_tag = width - 2 - len(tagline_raw)
+    print(f"{Colors.CYAN}║{Colors.RESET}{tagline}{' ' * max(0, pad_tag)}{Colors.CYAN}║{Colors.RESET}")
+
+    # Bottom border
+    print(f"{Colors.CYAN}{Colors.BOLD}╚{'═' * (width - 2)}╝{Colors.RESET}")
     print()
 
 
@@ -340,7 +465,7 @@ def get_weather_fn(location):
 
 from typing import Literal, Tuple
 
-HARD_TIMEOUT = 300
+HARD_TIMEOUT = 60 
 
 PS1_BLOCK_BEGIN = '\n###PS1JSON###\n'
 PS1_BLOCK_END   = '\n###PS1END###'
@@ -710,7 +835,7 @@ class NanoClaude:
 
     def __init__(self):
         # ── agent state ─────────────────────────────────────────────────
-        self.history = [{"role": "system", "content": "You're NanoClaude Code, a god tier coding agent"}]
+        self.history = [SYSTEM_PROMPT]
         
         # ADD TOOLs
         self.tools = [bash_tool(), file_editor_tool()]
@@ -775,7 +900,7 @@ class NanoClaude:
         if tool_name == "execute_bash":
             out = self.bash_session.execute(arguments.get("command", ""))
             result = out.to_agent_observation()
-            print_tool_result(success=True)
+            print_tool_result(success=True, observation=result)
             return convert_obs_to_json(result=result, tool=tool)
 
         elif tool_name == "file_editor":
@@ -791,10 +916,10 @@ class NanoClaude:
             try:
                 result = self.editor(**args)
                 result_text = result.success_message
-                print_tool_result(success=True)
+                print_tool_result(success=True, observation=result_text)
             except ToolError as e:
                 result_text = e.message
-                print_tool_result(success=False, summary=f"{Colors.RED}{e.message}{Colors.RESET}")
+                print_tool_result(success=False, summary=f"{Colors.RED}{e.message}{Colors.RESET}", observation=result_text)
             return convert_obs_to_json(result=result_text, tool=tool)
             
 
@@ -829,7 +954,7 @@ class NanoClaude:
         finally:
             print()
             print_separator('═', 70)
-            print(f"{Colors.DIM}  NanoClaude session ended{Colors.RESET}")
+            print(f"{Colors.DIM}  ⚡ NanoClaude session ended — see you soon!{Colors.RESET}")
             print()
 
 
