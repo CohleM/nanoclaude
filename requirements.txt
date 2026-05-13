@@ -4,17 +4,11 @@ aiosignal==1.4.0
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.13.0
-appnope @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_46iquy4y0r/croot/appnope_1750774774351/work
-asttokens @ file:///Users/ec2-user/croot/asttokens_1773135785767/work
 attrs==26.1.0
 certifi==2026.4.22
 charset-normalizer==3.4.7
 click==8.1.8
-comm @ file:///opt/miniconda3/conda-bld/comm_1763119153597/work
-debugpy @ file:///opt/miniconda3/conda-bld/debugpy_1762421636098/work
-decorator @ file:///opt/miniconda3/conda-bld/decorator_1757341237667/work
 distro==1.9.0
-executing @ file:///opt/miniconda3/conda-bld/executing_1757061274032/work
 fastuuid==0.14.0
 filelock==3.29.0
 frozenlist==1.8.0
@@ -24,63 +18,39 @@ hf-xet==1.5.0
 httpcore==1.0.9
 httpx==0.28.1
 huggingface_hub==1.14.0
-idna==3.13
+idna==3.15
 importlib_metadata==8.5.0
-ipykernel @ file:///Users/ec2-user/croot/ipykernel_1772612351612/work
-ipython @ file:///Users/ec2-user/croot/ipython_1773996061951/work
-ipython_pygments_lexers @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_25fteymumy/croot/ipython_pygments_lexers_1744753256449/work
-jedi @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_38ctoinnl0/croot/jedi_1733987402850/work
 Jinja2==3.1.6
 jiter==0.14.0
 jsonschema==4.23.0
 jsonschema-specifications==2025.9.1
-jupyter_client @ file:///Users/ec2-user/croot/jupyter_client_1768399006462/work
-jupyter_core @ file:///opt/miniconda3/conda-bld/jupyter_core_1764588284370/work
-libtmux==0.55.1
+libtmux==0.56.0
 litellm==1.83.14
 markdown-it-py==4.2.0
 MarkupSafe==3.0.3
-matplotlib-inline @ file:///opt/miniconda3/conda-bld/matplotlib-inline_1762779171607/work
 mdurl==0.1.2
 multidict==6.7.1
-nest-asyncio @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_310vb5e2a0/croot/nest-asyncio_1708532678212/work
 openai==2.24.0
-packaging==26.0
-parso @ file:///opt/miniconda3/conda-bld/parso_1762781704748/work
-pexpect @ file:///opt/miniconda3/conda-bld/pexpect_1762535936277/work
-platformdirs @ file:///Users/ec2-user/croot/platformdirs_1773652974741/work
-prompt_toolkit @ file:///opt/miniconda3/conda-bld/prompt-toolkit_1761744880534/work
+packaging==26.2
 propcache==0.5.2
-psutil @ file:///opt/miniconda3/conda-bld/psutil_1761896324488/work
-ptyprocess @ file:///opt/miniconda3/conda-bld/ptyprocess_1762424170819/work/dist/ptyprocess-0.7.0-py2.py3-none-any.whl#sha256=3470be7f810474c8a2ecfcd6e02acc6aea8483ab595417fa4e336362a349933e
-pure_eval @ file:///opt/miniconda3/conda-bld/pure_eval_1757067068604/work
 pydantic==2.12.5
 pydantic_core==2.41.5
-Pygments @ file:///Users/ec2-user/croot/pygments_1775127020713/work
-python-dateutil @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_66ud1l42_h/croot/python-dateutil_1716495741162/work
+Pygments==2.20.0
 python-dotenv==1.2.2
 PyYAML==6.0.3
-pyzmq @ file:///opt/miniconda3/conda-bld/pyzmq_1762375616615/work
 referencing==0.37.0
-regex==2026.4.4
-requests==2.33.1
+regex==2026.5.9
+requests==2.34.0
 rich==15.0.0
 rpds-py==0.30.0
-setuptools==82.0.1
 shellingham==1.5.4
-six @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_03myqm7p6o/croot/six_1744271511946/work
 sniffio==1.3.1
-stack_data @ file:///opt/miniconda3/conda-bld/stack_data_1757067043377/work
 tiktoken==0.12.0
 tokenizers==0.22.2
-tornado @ file:///Users/ec2-user/croot/tornado_1774303634698/work
 tqdm==4.67.3
-traitlets @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_500m2_1wyk/croot/traitlets_1718227071952/work
 typer==0.23.1
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 urllib3==2.7.0
-wcwidth @ file:///Users/ec2-user/croot/wcwidth_1767780874421/work
-wheel==0.46.3
 yarl==1.23.0
 zipp==3.23.1
